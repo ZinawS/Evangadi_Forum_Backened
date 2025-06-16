@@ -11,16 +11,19 @@ const router = express.Router();
  */
 router.get("/", async (req, res) => {
   try {
-    const [questions] = await dbConnection
-      .promise()
-      .query(
-        "SELECT q.*, u.username FROM questionTable q JOIN userTable u ON q.userid = u.userid"
-      );
+    const { rows: questions } = await dbConnection.query(
+      `SELECT q.*, u.username 
+       FROM questionTable q 
+       JOIN userTable u ON q.userid = u.userid`
+    );
 
     res.json({ questions });
   } catch (error) {
     console.error("Get questions error:", error);
-    res.status(500).json({ error: "Couldn't get questions" });
+    res.status(500).json({ 
+      error: "Couldn't get questions",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -32,12 +35,13 @@ router.get("/:questionid", async (req, res) => {
   try {
     const { questionid } = req.params;
 
-    const [questions] = await dbConnection
-      .promise()
-      .execute(
-        "SELECT q.*, u.username FROM questionTable q JOIN userTable u ON q.userid = u.userid WHERE q.questionid = ?",
-        [questionid]
-      );
+    const { rows: questions } = await dbConnection.query(
+      `SELECT q.*, u.username 
+       FROM questionTable q 
+       JOIN userTable u ON q.userid = u.userid 
+       WHERE q.questionid = $1`,
+      [questionid]
+    );
 
     if (questions.length === 0) {
       return res.status(404).json({ error: "Question not found" });
@@ -46,7 +50,10 @@ router.get("/:questionid", async (req, res) => {
     res.json(questions[0]);
   } catch (error) {
     console.error("Get question error:", error);
-    res.status(500).json({ error: "Couldn't get question" });
+    res.status(500).json({ 
+      error: "Couldn't get question",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -55,6 +62,7 @@ router.get("/:questionid", async (req, res) => {
  * Route: POST /api/question
  */
 router.post("/", checkLogin, async (req, res) => {
+  const client = await dbConnection.connect();
   try {
     const { title, description, tag } = req.body;
     const userid = req.user.userid;
@@ -64,17 +72,31 @@ router.post("/", checkLogin, async (req, res) => {
       return res.status(400).json({ error: "Title and description required" });
     }
 
-    await dbConnection
-      .promise()
-      .execute(
-        "INSERT INTO questionTable (questionid, userid, title, description, tag) VALUES (?, ?, ?, ?, ?)",
-        [questionid, userid, title, description, tag || null]
-      );
+    await client.query('BEGIN');
 
-    res.status(201).json({ message: "Question posted", questionid });
+    const { rowCount } = await client.query(
+      `INSERT INTO questionTable 
+       (questionid, userid, title, description, tag) 
+       VALUES ($1, $2, $3, $4, $5)`,
+      [questionid, userid, title, description, tag || null]
+    );
+
+    await client.query('COMMIT');
+
+    if (rowCount === 1) {
+      res.status(201).json({ message: "Question posted", questionid });
+    } else {
+      throw new Error("Question insertion failed");
+    }
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error("Post question error:", error);
-    res.status(500).json({ error: "Couldn't post question" });
+    res.status(500).json({ 
+      error: "Couldn't post question",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  } finally {
+    client.release();
   }
 });
 
