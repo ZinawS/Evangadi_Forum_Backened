@@ -12,11 +12,11 @@ dotenv.config();
 const { Pool } = pg;
 
 const dbConnection = new Pool({
-  host: process.env.DB_HOST || "localhost",
-  user: process.env.DB_USER || "postgres",
-  password: process.env.DB_PASSWORD || "postgres",
-  database: process.env.DB_NAME || "evangadi_forum",
-  port: process.env.DB_PORT || 5432, // PostgreSQL default port
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  port: process.env.DB_PORT, // PostgreSQL default port
 
   // Connection pool settings (similar to MySQL version)
   max: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || 10, // Max concurrent connections
