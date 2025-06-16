@@ -18,12 +18,13 @@ const transporter = nodemailer.createTransport({
 router.get("/:questionid", checkLogin, async (req, res) => {
   try {
     const { questionid } = req.params;
-    const [answers] = await dbConnection
-      .promise()
-      .execute(
-        "SELECT a.*, u.username FROM answerTable a JOIN userTable u ON a.userid = u.userid WHERE a.questionid = ?",
-        [questionid]
-      );
+    const { rows: answers } = await dbConnection.query(
+      `SELECT a.*, u.username 
+       FROM answerTable a 
+       JOIN userTable u ON a.userid = u.userid 
+       WHERE a.questionid = $1`,
+      [questionid]
+    );
 
     if (answers.length === 0) {
       return res.status(404).json({ error: "No answers found" });
@@ -32,7 +33,10 @@ router.get("/:questionid", checkLogin, async (req, res) => {
     res.json({ answers });
   } catch (error) {
     console.error("Get answers error:", error);
-    res.status(500).json({ error: "Couldn't get answers" });
+    res.status(500).json({ 
+      error: "Couldn't get answers",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -46,46 +50,66 @@ router.post("/", checkLogin, async (req, res) => {
       return res.status(400).json({ error: "Question ID and answer required" });
     }
 
-    const [questions] = await dbConnection
-      .promise()
-      .execute("SELECT * FROM questionTable WHERE questionid = ?", [questionid]);
+    // Start transaction
+    const client = await dbConnection.connect();
+    try {
+      await client.query('BEGIN');
 
-    if (questions.length === 0) {
-      return res.status(404).json({ error: "Question not found" });
-    }
+      // Check if question exists
+      const { rows: questions } = await client.query(
+        "SELECT * FROM questionTable WHERE questionid = $1",
+        [questionid]
+      );
 
-    await dbConnection
-      .promise()
-      .execute(
-        "INSERT INTO answerTable (questionid, userid, answer) VALUES (?, ?, ?)",
+      if (questions.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: "Question not found" });
+      }
+
+      // Insert answer
+      await client.query(
+        "INSERT INTO answerTable (questionid, userid, answer) VALUES ($1, $2, $3)",
         [questionid, userid, answer]
       );
 
-    // Get the question owner's email
-    const questionOwnerId = questions[0].userid;
-    const [users] = await dbConnection
-      .promise()
-      .execute("SELECT email FROM userTable WHERE userid = ?", [questionOwnerId]);
+      // Get question owner's email
+      const questionOwnerId = questions[0].userid;
+      const { rows: users } = await client.query(
+        "SELECT email FROM userTable WHERE userid = $1",
+        [questionOwnerId]
+      );
 
-    if (users.length > 0) {
-      const recipientEmail = users[0].email;
+      // Commit transaction
+      await client.query('COMMIT');
 
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: recipientEmail,
-        subject: "New Answer to Your Question",
-        html: `
-          <p>Your question titled <strong>${questions[0].title}</strong> has a new answer:</p>
-          <p><em>${answer}</em></p>
-          <p><a href="https://your-frontend-url.com/question/${questionid}">View the discussion</a></p>
-        `,
-      });
+      // Send email notification if recipient exists
+      if (users.length > 0) {
+        const recipientEmail = users[0].email;
+        await transporter.sendMail({
+          from: process.env.EMAIL_USER,
+          to: recipientEmail,
+          subject: "New Answer to Your Question",
+          html: `
+            <p>Your question titled <strong>${questions[0].title}</strong> has a new answer:</p>
+            <p><em>${answer}</em></p>
+            <p><a href="${process.env.FRONTEND_URL}/question/${questionid}">View the discussion</a></p>
+          `,
+        });
+      }
+
+      res.status(201).json({ message: "Answer posted and email sent" });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
-
-    res.status(201).json({ message: "Answer posted and email sent" });
   } catch (error) {
     console.error("Post answer error:", error);
-    res.status(500).json({ error: "Couldn't post answer" });
+    res.status(500).json({ 
+      error: "Couldn't post answer",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
