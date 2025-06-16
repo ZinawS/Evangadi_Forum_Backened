@@ -1,8 +1,11 @@
 import dbConnection from "../Database/database_config.js";
 import crypto from "crypto";
-import { sendResetEmail } from "../sendEmail.js"; // Helper function that sends email
+import { sendResetEmail } from "../sendEmail.js";
 import bcrypt from "bcrypt";
 import dotenv from "dotenv";
+
+dotenv.config();
+
 // Helper function to generate a secure random token
 function generateToken() {
   return crypto.randomBytes(32).toString("hex"); // 64-character hexadecimal token
@@ -10,6 +13,7 @@ function generateToken() {
 
 // Main controller for handling forgot password requests
 export const forgotPassword = async (req, res) => {
+  const client = await dbConnection.connect();
   try {
     const { email } = req.body;
 
@@ -19,9 +23,10 @@ export const forgotPassword = async (req, res) => {
     }
 
     // Step 2: Look up the user in the database
-    const [users] = await dbConnection
-      .promise()
-      .execute("SELECT * FROM usertable WHERE email = ?", [email]);
+    const { rows: users } = await client.query(
+      "SELECT * FROM userTable WHERE email = $1",
+      [email]
+    );
 
     if (users.length === 0) {
       // Avoid leaking existence of emails
@@ -35,15 +40,13 @@ export const forgotPassword = async (req, res) => {
     const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
    
     // Step 4: Store token and expiry in the user's record
-    await dbConnection
-      .promise()
-      .execute(
-        "UPDATE usertable SET reset_token = ?, reset_token_expiry = ? WHERE email = ?",
-        [token, expiry, email]
-      );
+    await client.query(
+      "UPDATE userTable SET reset_token = $1, reset_token_expiry = $2 WHERE email = $3",
+      [token, expiry, email]
+    );
 
     // Step 5: Send the password reset email
-    await sendResetEmail(email, token); // This function handles formatting and sending
+    await sendResetEmail(email, token);
 
     // Step 6: Respond to the client
     res.status(200).json({
@@ -51,15 +54,20 @@ export const forgotPassword = async (req, res) => {
     });
   } catch (err) {
     console.error("Forgot Password Error:", err);
-    res
-      .status(500)
-      .json({ error: "Internal Server Error. Please try again later." });
+    res.status(500).json({ 
+      error: "Internal Server Error. Please try again later.",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  } finally {
+    client.release();
   }
 };
 
-// Step 2: Handle password reset
+// Handle password reset
 export const resetPassword = async (req, res) => {
+  const client = await dbConnection.connect();
   try {
+    await client.query('BEGIN');
     const { token, newPassword } = req.body;
 
     // 1. Validate input
@@ -70,12 +78,10 @@ export const resetPassword = async (req, res) => {
     }
 
     // 2. Lookup the user with the token and check token expiry
-    const [users] = await dbConnection
-      .promise()
-      .execute(
-        "SELECT * FROM usertable WHERE reset_token = ? AND reset_token_expiry > NOW()",
-        [token]
-      );
+    const { rows: users } = await client.query(
+      "SELECT * FROM userTable WHERE reset_token = $1 AND reset_token_expiry > NOW()",
+      [token]
+    );
  
     if (users.length === 0) {
       return res.status(400).json({ error: "Invalid or expired token." });
@@ -87,16 +93,23 @@ export const resetPassword = async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     // 4. Update password and clear the reset token fields
-    await dbConnection.promise().execute(
-      `UPDATE usertable 
-         SET password = ?, reset_token = NULL, reset_token_expiry = NULL 
-         WHERE userid = ?`,
+    await client.query(
+      `UPDATE userTable 
+       SET password = $1, reset_token = NULL, reset_token_expiry = NULL 
+       WHERE userid = $2`,
       [hashedPassword, user.userid]
     );
 
+    await client.query('COMMIT');
     res.status(200).json({ message: "Password reset successful." });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error("Reset Password Error:", err);
-    res.status(500).json({ error: "Server error. Please try again later." });
+    res.status(500).json({ 
+      error: "Server error. Please try again later.",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  } finally {
+    client.release();
   }
 };
