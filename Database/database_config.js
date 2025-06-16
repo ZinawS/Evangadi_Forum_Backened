@@ -1,44 +1,42 @@
-/**
- * Database configuration for the Evangadi Forum project.
- * Sets up a MySQL connection pool using mysql2 for efficient database access.
- * Uses environment variables for sensitive data to ensure security in production.
- * Includes a test query to verify connectivity and the database schema for reference.
- */
-
-import mysql2 from "mysql2";
+import pg from "pg";
 import dotenv from "dotenv";
 
 // Initialize environment variables from .env file
 dotenv.config();
 
 /**
- * MySQL connection pool configuration.
+ * PostgreSQL connection pool configuration.
  * Uses environment variables for host, user, password, database, and port.
- * Includes production-ready settings: connectionLimit to manage concurrent connections,
- * and queueLimit to prevent request pileup.
+ * Includes production-ready pool settings similar to the MySQL version.
  */
-const dbConnection = mysql2.createPool({
+const { Pool } = pg;
+
+const dbConnection = new Pool({
   host: process.env.DB_HOST || "localhost",
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "root",
+  user: process.env.DB_USER || "postgres",
+  password: process.env.DB_PASSWORD || "postgres",
   database: process.env.DB_NAME || "evangadi_forum",
-  port: process.env.DB_PORT || 3306,
-  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || 10, // Max concurrent connections
-  queueLimit: parseInt(process.env.DB_QUEUE_LIMIT, 10) || 0, // Unlimited queue (0)
-  waitForConnections: true, // Wait for available connections
+  port: process.env.DB_PORT || 5432, // PostgreSQL default port
+
+  // Connection pool settings (similar to MySQL version)
+  max: parseInt(process.env.DB_CONNECTION_LIMIT, 10) || 10, // Max concurrent connections
+  idleTimeoutMillis: 30000, // How long a client is allowed to remain idle
+  connectionTimeoutMillis: 2000, // How long to wait for a connection
 });
 
 /**
  * Test database connection on startup.
  * Executes a simple query to verify connectivity and logs the result.
- * In production, consider logging to a file or monitoring service instead of console.
  */
-dbConnection.execute("SELECT 'test' ", (err, result) => {
-	if (err) {
-		console.error("Database connection test failed:", err.message);
-	} else {
-		console.log("Database connection test successful:", result);
-	}
+dbConnection.query("SELECT NOW()", (err, result) => {
+  if (err) {
+    console.error("Database connection test failed:", err.message);
+  } else {
+    console.log(
+      "Database connection test successful. Current server time:",
+      result.rows[0].now
+    );
+  }
 });
 
 /**
@@ -46,11 +44,10 @@ dbConnection.execute("SELECT 'test' ", (err, result) => {
  * Logs errors to help diagnose issues in production.
  */
 dbConnection.on("error", (err) => {
-	console.error("Database pool error:", err.message);
+  console.error("Database pool error:", err.message);
 });
 
 export default dbConnection;
-
 /**
  * Database schema for reference (not executed here; run separately via database.sql).
  * Included as a comment to document the expected database structure.
