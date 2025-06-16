@@ -15,17 +15,15 @@ const router = express.Router();
 router.get("/checkUser", checkLogin, async (req, res) => {
   try {
     console.log("Fetching user for userid:", req.user.userid);
-    const [users] = await dbConnection
-      .promise()
-      .execute(
-        "SELECT userid, firstname, username, email FROM userTable WHERE userid = ?",
-        [req.user.userid]
-      );
-    console.log("User query result:", users);
-    if (users.length === 0) {
+    const { rows } = await dbConnection.query(
+      "SELECT userid, firstname, username, email FROM userTable WHERE userid = $1",
+      [req.user.userid]
+    );
+    console.log("User query result:", rows);
+    if (rows.length === 0) {
       return res.status(404).json({ error: "User not found" });
     }
-    res.json(users[0]);
+    res.json(rows[0]);
   } catch (error) {
     console.error("Check user error:", error);
     res.status(500).json({ error: "Failed to fetch user data" });
@@ -36,12 +34,10 @@ router.post("/register", checkSignUp, async (req, res) => {
   try {
     const { username, firstname, lastname, email, password } = req.body;
 
-    const [existingUsers] = await dbConnection
-      .promise()
-      .execute(
-        "SELECT username, email FROM userTable WHERE username = ? OR email = ?",
-        [username, email]
-      );
+    const { rows: existingUsers } = await dbConnection.query(
+      "SELECT username, email FROM userTable WHERE username = $1 OR email = $2",
+      [username, email]
+    );
 
     if (existingUsers.some((user) => user.username === username)) {
       return res.status(400).json({ error: "Username already taken" });
@@ -53,20 +49,18 @@ router.post("/register", checkSignUp, async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    await dbConnection
-      .promise()
-      .execute(
-        "INSERT INTO userTable (username, email, firstname, lastname, password) VALUES (?, ?, ?, ?, ?)",
-        [username, email, firstname, lastname, hashedPassword]
-      );
+    await dbConnection.query(
+      "INSERT INTO userTable (username, email, firstname, lastname, password) VALUES ($1, $2, $3, $4, $5)",
+      [username, email, firstname, lastname, hashedPassword]
+    );
 
     res.status(201).json({ message: "Registration successful!" });
   } catch (error) {
-    console.error("Registration error:", error); // ✅ Logs the actual issue in terminal
+    console.error("Registration error:", error);
     res.status(500).json({
       error: "Registration failed",
-      details: error.message, // ✅ Send the real error back
-      stack: error.stack, // ✅ Optional: see where it occurred
+      details: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
     });
   }
 });
@@ -79,9 +73,10 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ error: "Email and password required" });
     }
 
-    const [users] = await dbConnection
-      .promise()
-      .execute("SELECT * FROM userTable WHERE email = ?", [email]);
+    const { rows: users } = await dbConnection.query(
+      "SELECT * FROM userTable WHERE email = $1",
+      [email]
+    );
 
     if (users.length === 0) {
       return res.status(401).json({ error: "Wrong email or password" });
