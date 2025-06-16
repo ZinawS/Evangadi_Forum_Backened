@@ -80,13 +80,16 @@ const checkSignUp = async (req, res, next) => {
         [username, email]
       );
 
-      if (existingUsers.some(user => user.username === username)) {
-        return res.status(400).json({ error: "Username already taken" });
-      }
+const lowerUsername = username.toLowerCase();
+const lowerEmail = email.toLowerCase();
 
-      if (existingUsers.some(user => user.email === email)) {
-        return res.status(400).json({ error: "Email already registered" });
-      }
+if (existingUsers.some(user => user.username.toLowerCase() === lowerUsername)) {
+  return res.status(400).json({ error: "Username already taken" });
+}
+
+if (existingUsers.some(user => user.email.toLowerCase() === lowerEmail)) {
+  return res.status(400).json({ error: "Email already registered" });
+}
 
       next();
     } finally {
