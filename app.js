@@ -13,6 +13,10 @@ import contentRoutes from "./Routes/edit_DeleteRoutes.js"; // Editing and deleti
 // Load environment variables
 dotenv.config();
 
+// By setting `app.set('trust proxy', true)`, you’re telling Express  to trust this header and use it to resolve `req.ip`.
+ 
+app.set('trust proxy', true);
+
 // Initialize Express application
 const app = express();
 
