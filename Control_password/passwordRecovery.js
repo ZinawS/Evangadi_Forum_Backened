@@ -37,7 +37,7 @@ export const forgotPassword = async (req, res) => {
 
     // Step 3: Generate secure token and expiry (1 hour from now)
     const token = generateToken();
-    const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour as Date object
    
     // Step 4: Store token and expiry in the user's record
     await client.query(
@@ -53,7 +53,11 @@ export const forgotPassword = async (req, res) => {
       message: "If the email exists, a password reset link has been sent.",
     });
   } catch (err) {
-    console.error("Forgot Password Error:", err);
+    console.error("Forgot Password Error:", {
+      error: err.message,
+      stack: err.stack,
+      timestamp: new Date().toISOString()
+    });
     res.status(500).json({ 
       error: "Internal Server Error. Please try again later.",
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -89,7 +93,12 @@ export const resetPassword = async (req, res) => {
 
     const user = users[0];
 
-    // 3. Hash the new password
+    // 3. Hash the new password with validation
+    if (newPassword.length < 8) {
+      return res.status(400).json({
+        error: "Password must be at least 8 characters"
+      });
+    }
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     // 4. Update password and clear the reset token fields
@@ -104,7 +113,11 @@ export const resetPassword = async (req, res) => {
     res.status(200).json({ message: "Password reset successful." });
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error("Reset Password Error:", err);
+    console.error("Reset Password Error:", {
+      error: err.message,
+      stack: err.stack,
+      timestamp: new Date().toISOString()
+    });
     res.status(500).json({ 
       error: "Server error. Please try again later.",
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
