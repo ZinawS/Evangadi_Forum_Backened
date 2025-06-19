@@ -1,82 +1,62 @@
+/**
+ * Express server setup
+ * Configures middleware, routes, and database connection
+ */
 import express from "express";
-import helmet from "helmet";
-import cors from "cors";
-import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
+import cors from "cors";
+import authRoutes from "./Routes/authRoutes.js";
+import questionRoutes from "./routes/questionRoutes.js";
+import answerRoutes from "./routes/answerRoutes.js";
+import contentRoutes from "./routes/contentRoutes.js";
+import ratingRoutes from "./routes/ratingRoutes.js";
+import tagRoutes from "./routes/tagRoutes.js";
+import categoryRoutes from "./routes/categoryRoutes.js";
+import searchRoutes from "./routes/searchRoutes.js";
+import sequelize from "./config/database.js";
 
-// Import routes
-import authRoutes from "./Routes/authenticationRoutes.js";
-import questionRoutes from "./Routes/questionRoutes.js";
-import answerRoutes from "./Routes/answerRoutes.js";
-import contentRoutes from "./Routes/edit_DeleteRoutes.js"; // Editing and deleting question and answers
-
-// Load environment variables
 dotenv.config();
 
-// By setting `app.set('trust proxy', true)`, you’re telling Express  to trust this header and use it to resolve `req.ip`.
- 
-app.set('trust proxy', true);
-
-// Initialize Express application
 const app = express();
 
-// ==============================================
-// MIDDLEWARE CONFIGURATION
-// ==============================================
-app.use(helmet());
-app.use(
-  cors({
-    // origin: process.env.CORS_ORIGIN || "*",
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-app.use(
-  rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 1000, // limit each IP to 1000 requests per window
-    message: "Too many requests from this IP, please try again later",
-  })
-);
-
+// Middleware
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ==============================================
-// ROUTES
-// ==============================================
-// Health check endpoint
-app.get("/health", (req, res) => {
-  res.json({ status: "Server is running" });
-});
-
-// API routes
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/question", questionRoutes);
 app.use("/api/answer", answerRoutes);
 app.use("/api/content", contentRoutes);
+app.use("/api/rating", ratingRoutes);
+app.use("/api/tag", tagRoutes);
+app.use("/api/category", categoryRoutes);
+app.use("/api/search", searchRoutes);
 
-// ==============================================
-// ERROR HANDLING
-// ==============================================
-// 404 Not Found Handler
-app.use((req, res) => {
-  res.status(404).json({ error: "Endpoint not found" });
+// Health check
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "OK", timestamp: new Date().toISOString() });
 });
 
-// Global Error Handler
+// Error handling
 app.use((err, req, res, next) => {
-  console.error("Unhandled error:", err);
-  res.status(500).json({ error: "Internal server error" });
+  console.error("Server error:", err);
+  res.status(500).json({
+    status: "error",
+    error: "Internal server error",
+    details: process.env.NODE_ENV === "development" ? err.message : undefined,
+  });
 });
 
-// ==============================================
-// SERVER INITIALIZATION
-// ==============================================
+// Start server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+  try {
+    await sequelize.authenticate();
+    console.log("Database connected");
+  } catch (error) {
+    console.error("Database connection failed:", error);
+  }
 });
